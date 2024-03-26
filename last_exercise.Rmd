@@ -1,0 +1,150 @@
+---
+title: "Last_exercise"
+output: html_document
+date: "2024-03-26"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Starting
+
+I set the working directory and I open in R the two datasets (available in csv format).
+```{r }
+# Define working directory:
+
+setwd("C:/Users/78096934C/Documents/Coursera/MachineLearning/week4")
+
+train<-read.csv(file= "pml-training.csv", header = T)
+
+test<-read.csv(file="pml-testing.csv", header = T)
+
+
+# libraries
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+library(e1071)
+library(gbm)
+set.seed(2)
+```
+
+We create a partition with the training dataset by the classe variable (which are interested in) to validate and obtain an accuracy estimation before running a prediction against the test set (file pml-testing.csv).
+```{r  }
+train_part  <- createDataPartition(train$classe, p=0.75, list=FALSE)
+training <- train[train_part, ]
+validating  <- train[-train_part, ]
+dim(training)
+#14718 160
+dim(validating)
+#20 160
+```
+
+We see the structure of the train data set
+
+```{r  }
+str(train)
+```
+
+The first seven variables are variables not related to our problem.We have variables with NA values and null (empty cells). I searched in the internet one function to remove this, and I use the next strategy:
+```{r  }
+rtotal <- dim(training)[1]
+napct <- sapply(training,function(y) (sum(length(which(is.na(y))))/rtotal))
+nullpct <- sapply(training,function(y) (sum(length(which((y == ""))))/rtotal))
+
+highna <- napct[which(napct > 0.25)]
+to.remove <- names(highna)
+highnull <- nullpct[which(nullpct > 0.25)]
+to.remove <- c(to.remove,names(highnull))
+
+training_def <- training[ , !(names(training) %in% to.remove)]
+validating_def <- validating[ , !(names(validating) %in% to.remove)]
+test_definitive<-test[,!(names(test) %in% to.remove)]
+
+
+
+#drop first 7 columns
+training_def <- training_def[, 8:60]
+validating_def <- validating_def[,8:60]
+test_definitive <- test_definitive[,8:60]
+
+# Now we have the two partitions, with 53 variables
+```
+
+
+
+```{r  }
+setdiff(names(training_def),names(validating_def))
+# character(0)
+
+setdiff(names(validating_def),names(training_def))
+# character(0)
+
+# There are no differences because it is a partition of the training set. Nevertheless, when we compare to test set
+
+setdiff(names(training_def), names(test))
+# [1] "classe"
+
+setdiff(names(test_definitive), names(training_def))
+# [1] "problem_id"
+```
+
+# Method 1: Decision trees
+```{r  }
+set.seed(2)
+
+modFit_1 <- rpart(classe ~ ., data=training_def, method="class")
+
+# Now I validate model for accuracy:
+
+predict_1 <- predict(modFit_1, newdata=validating_def, type="class")
+
+confusion_matrix_1 <- confusionMatrix(as.factor(predict_1), as.factor(validating_def$classe)) # Error: `data` and `reference` should be factors with the same levels. I put as.factor to solve this error
+
+confusion_matrix_1
+```
+
+# Method 2. Random forest
+```{r  }
+set.seed(2)
+
+# controlRF <- trainControl(method="cv", number=3, verboseIter=FALSE)
+# modFit_2 <- train(classe ~ ., data=training_def, method="rf",trControl=controlRF) # this takes 
+
+length(training_def$classe)
+# [1] 14718
+
+#  I subset the training_test to sample 5% to overcome this scenario of computing limitations.
+
+n = round(length(training_def$classe)*0.05) #736 observations
+i <- sample(nrow(training_def),n)
+training_def_rf <- training_def[i, ]  #736 observation of 53 variables.
+set.seed(2)
+modFit_2<-train(classe ~ ., data=training_def_rf, method="rf") # takes 5 minutes
+
+# Now, we predict the classe values:
+
+predict_2 <- predict(modFit_2, newdata=validating_def)
+
+
+confusion_matrix_2 <- confusionMatrix(as.factor(validating_def$classe), as.factor(predict_2))
+
+confusion_matrix_2
+```
+The accuracy obtained in RF is better compared to decision trees. So we use RF model.
+
+# Final prediction on the test set (pml-testing.csv)
+```{r }
+# Now we will use the test dataset that the classes is not informed, we have the variable problem_id:
+set.seed(2)
+last_prediction<-predict(modFit_2, newdata=test_definitive)
+
+# Creating classe variable in the test set with the predicted values
+test_definitive$classe <- last_prediction
+
+# Now we have the prediction of the 20 observations in the test set.
+
+print(test_definitive[, c("problem_id", "classe")])
+```
